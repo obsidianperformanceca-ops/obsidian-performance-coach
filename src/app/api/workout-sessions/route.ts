@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { requireClient } from "@/lib/auth/session";
+import { getOrCreateTodayLog } from "@/lib/db/daily-logs";
 
 interface SetInput {
   exerciseId: string;
@@ -35,6 +36,21 @@ export async function POST(request: Request) {
   if (sessionError || !session) {
     return NextResponse.json({ error: sessionError?.message ?? "Could not create session" }, { status: 500 });
   }
+
+  // Training is now logged as-you-go rather than as part of the daily
+  // check-in — so completing a workout session is what flips today's
+  // workout_completed flag (used for compliance %) instead of a manual
+  // checkbox in the check-in form.
+  const { data: day } = await supabase.from("workout_days").select("name").eq("id", workoutDayId).maybeSingle();
+  const todayLog = await getOrCreateTodayLog(client.id);
+  await supabase
+    .from("daily_logs")
+    .update({
+      workout_completed: true,
+      workout_name: day?.name ?? null,
+      status: todayLog.status === "PENDING" ? "SUBMITTED" : todayLog.status,
+    })
+    .eq("id", todayLog.id);
 
   // Determine PRs: for each exercise, compare against this client's best-ever weight for that exercise.
   const exerciseIds = [...new Set(sets.map((s) => s.exerciseId))];

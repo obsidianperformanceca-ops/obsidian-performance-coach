@@ -52,6 +52,7 @@ export async function getCoachDashboardData(coachId: string): Promise<CoachDashb
         completedDays: recentLogs.filter((l) => l.status !== "PENDING").length,
       }),
       status: c.status,
+      unitPreference: c.unit_preference,
     };
   });
 

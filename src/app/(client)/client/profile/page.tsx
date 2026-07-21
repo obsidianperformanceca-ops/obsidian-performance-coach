@@ -2,6 +2,7 @@ import { requireClient } from "@/lib/auth/session";
 import { getActiveTarget } from "@/lib/db/targets";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
+import { formatWeight, formatHeight } from "@/lib/utils/units";
 
 const LABELS: Record<string, string> = {
   FAT_LOSS: "Fat Loss",
@@ -37,10 +38,10 @@ export default async function ClientProfilePage() {
           <div className="grid grid-cols-2 gap-4 text-sm">
             <Field label="Name" value={client.full_name} />
             <Field label="Age" value={client.age} />
-            <Field label="Height" value={client.height_cm ? `${client.height_cm} cm` : null} />
-            <Field label="Starting weight" value={client.starting_weight_kg ? `${client.starting_weight_kg} kg` : null} />
-            <Field label="Current weight" value={client.current_weight_kg ? `${client.current_weight_kg} kg` : null} />
-            <Field label="Goal weight" value={client.goal_weight_kg ? `${client.goal_weight_kg} kg` : null} />
+            <Field label="Height" value={formatHeight(client.height_cm, client.unit_preference)} />
+            <Field label="Starting weight" value={formatWeight(client.starting_weight_kg, client.unit_preference)} />
+            <Field label="Current weight" value={formatWeight(client.current_weight_kg, client.unit_preference)} />
+            <Field label="Goal weight" value={formatWeight(client.goal_weight_kg, client.unit_preference)} />
             <Field label="Goal" value={client.goal ? LABELS[client.goal] : null} />
             <Field label="Activity level" value={client.activity_level ? LABELS[client.activity_level] : null} />
             <Field label="Experience" value={client.experience_level ? LABELS[client.experience_level] : null} />

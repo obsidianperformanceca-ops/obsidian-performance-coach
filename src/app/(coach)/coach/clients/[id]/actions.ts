@@ -7,7 +7,8 @@ import { setActiveTarget } from "@/lib/db/targets";
 import { addMeasurement } from "@/lib/db/measurements";
 import { addNote } from "@/lib/db/notes";
 import { addWeight } from "@/lib/db/weights";
-import type { Goal, ActivityLevel, ExperienceLevel, TrainingLocation, ClientStatus } from "@/types/database";
+import type { Goal, ActivityLevel, ExperienceLevel, TrainingLocation, ClientStatus, UnitPreference } from "@/types/database";
+import { weightToKg } from "@/lib/utils/units";
 
 export async function updateTargetsAction(clientId: string, formData: FormData) {
   await requireCoach();
@@ -54,6 +55,7 @@ export async function updateBasicInfoAction(clientId: string, formData: FormData
       equipment_available: str(formData.get("equipmentAvailable")),
       training_location: (str(formData.get("trainingLocation")) || null) as TrainingLocation | null,
       status: (str(formData.get("status")) || undefined) as ClientStatus | undefined,
+      unit_preference: (str(formData.get("unitPreference")) || undefined) as UnitPreference | undefined,
     })
     .eq("id", clientId);
   revalidatePath(`/coach/clients/${clientId}`);
@@ -81,12 +83,19 @@ export async function addMeasurementAction(clientId: string, formData: FormData)
 
 export async function addWeightAction(clientId: string, formData: FormData) {
   await requireCoach();
-  const weight = num(formData.get("weightKg"));
-  if (weight == null) return;
-  await addWeight(clientId, weight);
+  const enteredWeight = num(formData.get("weightKg"));
+  if (enteredWeight == null) return;
 
   const supabase = await createClient();
-  await supabase.from("clients").update({ current_weight_kg: weight }).eq("id", clientId);
+  const { data: client } = await supabase
+    .from("clients")
+    .select("unit_preference")
+    .eq("id", clientId)
+    .single();
+  const weightKg = weightToKg(enteredWeight, client?.unit_preference ?? "METRIC");
+
+  await addWeight(clientId, weightKg);
+  await supabase.from("clients").update({ current_weight_kg: weightKg }).eq("id", clientId);
   revalidatePath(`/coach/clients/${clientId}`);
 }
 

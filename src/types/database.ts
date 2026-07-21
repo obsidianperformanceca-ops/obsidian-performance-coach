@@ -29,8 +29,11 @@ export type NotificationType =
   | "WEEKLY_CHECKIN_DUE"
   | "COACH_FEEDBACK"
   | "COACH_MESSAGE"
-  | "DAY_APPROVED";
+  | "DAY_APPROVED"
+  | "TARGET_AUTO_ADJUSTED"
+  | "PROGRESS_PHOTO_DUE";
 export type InviteStatus = "PENDING" | "COMPLETED" | "EXPIRED";
+export type UnitPreference = "METRIC" | "IMPERIAL";
 
 type Timestamp = string;
 
@@ -77,6 +80,7 @@ export interface Database {
           invite_status: InviteStatus;
           invite_expires_at: Timestamp | null;
           onboarded_at: Timestamp | null;
+          unit_preference: UnitPreference;
           created_at: Timestamp;
           updated_at: Timestamp;
         };
@@ -122,6 +126,8 @@ export interface Database {
           water_ml: number | null;
           is_active: boolean;
           effective_from: Timestamp;
+          is_auto_generated: boolean;
+          adjustment_reason: string | null;
           created_at: Timestamp;
         };
         Insert: Partial<Database["public"]["Tables"]["targets"]["Row"]> & { client_id: string };

@@ -19,6 +19,7 @@ export const activityLevelEnum = z.enum([
 
 export const experienceLevelEnum = z.enum(["BEGINNER", "INTERMEDIATE", "ADVANCED"]);
 export const trainingLocationEnum = z.enum(["GYM", "HOME", "HYBRID"]);
+export const unitPreferenceEnum = z.enum(["METRIC", "IMPERIAL"]);
 
 export const newClientSchema = z.object({
   fullName: z.string().min(1, "Name is required"),
@@ -34,6 +35,7 @@ export const onboardingSchema = z.object({
   goalWeightKg: z.coerce.number().positive().optional(),
   goal: goalEnum.optional(),
   activityLevel: activityLevelEnum.optional(),
+  unitPreference: unitPreferenceEnum.optional(),
 
   // Training
   daysPerWeek: z.coerce.number().int().min(0).max(14).optional(),

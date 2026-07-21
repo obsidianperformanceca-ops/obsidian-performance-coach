@@ -5,10 +5,12 @@ import { getClientById } from "@/lib/db/clients";
 import { getActiveTarget } from "@/lib/db/targets";
 import { getWeightsForClient } from "@/lib/db/weights";
 import { getMeasurementsForClient } from "@/lib/db/measurements";
-import { getPhotosForClient } from "@/lib/db/photos";
+import { getPhotosForClient, getSignedPhotoUrls } from "@/lib/db/photos";
+import { format } from "date-fns";
 import { getNotesForClient } from "@/lib/db/notes";
 import { getDailyLogsForClient } from "@/lib/db/daily-logs";
 import { weeklyAverageWeight, weeklyWeightChange, monthlyWeightChange } from "@/lib/calculations/progress";
+import { formatWeight } from "@/lib/utils/units";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatCard } from "@/components/shared/stat-card";
 import { WeightChart } from "@/components/charts/weight-chart";
@@ -52,6 +54,7 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
   const weeklyAvg = weeklyAverageWeight(weightPoints);
   const weeklyChange = weeklyWeightChange(weightPoints);
   const monthlyChange = monthlyWeightChange(weightPoints);
+  const photoUrls = await getSignedPhotoUrls(photos);
 
   return (
     <div>
@@ -71,18 +74,26 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
       />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Current weight" value={client.current_weight_kg ? `${client.current_weight_kg} kg` : "—"} />
+        <StatCard label="Current weight" value={formatWeight(client.current_weight_kg, client.unit_preference)} />
         <StatCard
           label="Weekly avg"
-          value={weeklyAvg != null ? `${weeklyAvg} kg` : "—"}
-          sublabel={weeklyChange != null ? `${weeklyChange > 0 ? "+" : ""}${weeklyChange} kg vs last wk` : undefined}
+          value={weeklyAvg != null ? formatWeight(weeklyAvg, client.unit_preference) : "—"}
+          sublabel={
+            weeklyChange != null
+              ? `${weeklyChange > 0 ? "+" : ""}${formatWeight(weeklyChange, client.unit_preference)} vs last wk`
+              : undefined
+          }
           trend={weeklyChange == null ? "neutral" : weeklyChange < 0 ? "up" : weeklyChange > 0 ? "down" : "neutral"}
         />
         <StatCard
           label="Monthly change"
-          value={monthlyChange != null ? `${monthlyChange > 0 ? "+" : ""}${monthlyChange} kg` : "—"}
+          value={
+            monthlyChange != null
+              ? `${monthlyChange > 0 ? "+" : ""}${formatWeight(monthlyChange, client.unit_preference)}`
+              : "—"
+          }
         />
-        <StatCard label="Goal weight" value={client.goal_weight_kg ? `${client.goal_weight_kg} kg` : "—"} />
+        <StatCard label="Goal weight" value={formatWeight(client.goal_weight_kg, client.unit_preference)} />
       </div>
 
       <Card className="mt-6">
@@ -93,13 +104,19 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
           <WeightChart
             data={weights.map((w) => ({ date: w.recorded_at, weightKg: w.weight_kg }))}
             goalWeightKg={client.goal_weight_kg}
+            unit={client.unit_preference}
           />
         ) : (
           <p className="text-sm text-muted">No weight entries yet.</p>
         )}
         <form action={addWeightAction.bind(null, id)} className="mt-4 flex items-end gap-2">
           <div className="flex-1">
-            <Input name="weightKg" type="number" step="0.1" placeholder="Log a weigh-in (kg)" />
+            <Input
+              name="weightKg"
+              type="number"
+              step="0.1"
+              placeholder={`Log a weigh-in (${client.unit_preference === "IMPERIAL" ? "lb" : "kg"})`}
+            />
           </div>
           <Button type="submit" size="sm" variant="secondary">Add</Button>
         </form>
@@ -114,7 +131,7 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <RecentCheckIns clientId={id} logs={logs} />
+        <RecentCheckIns clientId={id} logs={logs} unit={client.unit_preference} />
         <MeasurementsCard measurements={measurements} action={addMeasurementAction.bind(null, id)} />
       </div>
 
@@ -123,14 +140,21 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
         <Card>
           <CardHeader><CardTitle>Progress Photos</CardTitle></CardHeader>
           {photos.length === 0 ? (
-            <p className="text-sm text-muted">
-              No photos uploaded yet. Photo uploads go to Supabase Storage — wire up a bucket named
-              <code className="mx-1 rounded bg-surface-2 px-1">progress-photos</code> and an upload form here.
-            </p>
+            <p className="text-sm text-muted">No photos uploaded by this client yet.</p>
           ) : (
             <div className="grid grid-cols-3 gap-2">
               {photos.map((p) => (
-                <div key={p.id} className="aspect-[3/4] rounded-lg bg-surface-2" />
+                <div key={p.id} className="overflow-hidden rounded-lg bg-surface-2">
+                  {photoUrls[p.id] ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={photoUrls[p.id]} alt="Progress" className="aspect-[3/4] w-full object-cover" />
+                  ) : (
+                    <div className="aspect-[3/4]" />
+                  )}
+                  <p className="px-2 py-1 text-center text-[10px] text-subtle">
+                    {format(new Date(p.taken_at), "MMM d, yyyy")}
+                  </p>
+                </div>
               ))}
             </div>
           )}

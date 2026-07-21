@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { useState } from "react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,6 +15,8 @@ import type { TargetRow } from "@/lib/db/targets";
 import type { DailyLogRow } from "@/lib/db/daily-logs";
 import type { CoachNoteRow } from "@/lib/db/notes";
 import type { MeasurementRow } from "@/lib/db/measurements";
+import type { UnitPreference } from "@/types/database";
+import { displayWeight, weightToKg, cmToFeetInches, feetInchesToCm } from "@/lib/utils/units";
 
 const GOAL_OPTIONS = ["FAT_LOSS", "MUSCLE_GAIN", "RECOMP", "MAINTENANCE", "PERFORMANCE", "GENERAL_HEALTH"];
 const ACTIVITY_OPTIONS = ["SEDENTARY", "LIGHTLY_ACTIVE", "MODERATELY_ACTIVE", "VERY_ACTIVE", "EXTREMELY_ACTIVE"];
@@ -35,6 +40,14 @@ export function BasicInfoCard({
   client: ClientRow;
   action: (formData: FormData) => void;
 }) {
+  const [unit, setUnit] = useState<UnitPreference>(client.unit_preference);
+  const [heightCm, setHeightCm] = useState<number | "">(client.height_cm ?? "");
+  const [currentWeightKg, setCurrentWeightKg] = useState<number | "">(client.current_weight_kg ?? "");
+  const [goalWeightKg, setGoalWeightKg] = useState<number | "">(client.goal_weight_kg ?? "");
+
+  const heightFeetInches: { feet: number; inches: number } =
+    heightCm !== "" ? cmToFeetInches(heightCm) : { feet: 0, inches: 0 };
+
   return (
     <Card>
       <CardHeader>
@@ -44,6 +57,12 @@ export function BasicInfoCard({
         </Badge>
       </CardHeader>
       <form action={action} className="grid grid-cols-2 gap-4">
+        {/* Hidden canonical fields — always submitted in kg/cm regardless of display unit */}
+        <input type="hidden" name="heightCm" value={heightCm} />
+        <input type="hidden" name="currentWeightKg" value={currentWeightKg} />
+        <input type="hidden" name="goalWeightKg" value={goalWeightKg} />
+        <input type="hidden" name="unitPreference" value={unit} />
+
         <LField label="Name"><Input name="fullName" defaultValue={client.full_name} /></LField>
         <LField label="Status">
           <Select name="status" defaultValue={client.status}>
@@ -51,9 +70,68 @@ export function BasicInfoCard({
           </Select>
         </LField>
         <LField label="Age"><Input name="age" type="number" defaultValue={client.age ?? ""} /></LField>
-        <LField label="Height (cm)"><Input name="heightCm" type="number" defaultValue={client.height_cm ?? ""} /></LField>
-        <LField label="Current weight (kg)"><Input name="currentWeightKg" type="number" step="0.1" defaultValue={client.current_weight_kg ?? ""} /></LField>
-        <LField label="Goal weight (kg)"><Input name="goalWeightKg" type="number" step="0.1" defaultValue={client.goal_weight_kg ?? ""} /></LField>
+
+        <LField label="Units">
+          <Select value={unit} onChange={(e) => setUnit(e.target.value as UnitPreference)}>
+            <option value="METRIC">Metric (kg / cm)</option>
+            <option value="IMPERIAL">Imperial (lb / ft-in)</option>
+          </Select>
+        </LField>
+
+        {unit === "IMPERIAL" ? (
+          <LField label="Height (ft / in)">
+            <div className="flex gap-2">
+              <Input
+                type="number"
+                placeholder="ft"
+                value={heightFeetInches.feet}
+                onChange={(e) => {
+                  const feet = e.target.value === "" ? 0 : Number(e.target.value);
+                  setHeightCm(Math.round(feetInchesToCm(feet, heightFeetInches.inches) * 10) / 10);
+                }}
+              />
+              <Input
+                type="number"
+                placeholder="in"
+                value={heightFeetInches.inches}
+                onChange={(e) => {
+                  const inches = e.target.value === "" ? 0 : Number(e.target.value);
+                  setHeightCm(Math.round(feetInchesToCm(heightFeetInches.feet, inches) * 10) / 10);
+                }}
+              />
+            </div>
+          </LField>
+        ) : (
+          <LField label="Height (cm)">
+            <Input
+              type="number"
+              value={heightCm}
+              onChange={(e) => setHeightCm(e.target.value === "" ? "" : Number(e.target.value))}
+            />
+          </LField>
+        )}
+
+        <LField label={`Current weight (${unit === "IMPERIAL" ? "lb" : "kg"})`}>
+          <Input
+            type="number"
+            step="0.1"
+            value={currentWeightKg === "" ? "" : displayWeight(currentWeightKg, unit) ?? ""}
+            onChange={(e) =>
+              setCurrentWeightKg(e.target.value === "" ? "" : weightToKg(Number(e.target.value), unit))
+            }
+          />
+        </LField>
+        <LField label={`Goal weight (${unit === "IMPERIAL" ? "lb" : "kg"})`}>
+          <Input
+            type="number"
+            step="0.1"
+            value={goalWeightKg === "" ? "" : displayWeight(goalWeightKg, unit) ?? ""}
+            onChange={(e) =>
+              setGoalWeightKg(e.target.value === "" ? "" : weightToKg(Number(e.target.value), unit))
+            }
+          />
+        </LField>
+
         <LField label="Goal">
           <Select name="goal" defaultValue={client.goal ?? ""}>
             <option value="">—</option>
@@ -192,7 +270,15 @@ function MStat({ label, v }: { label: string; v: number | null }) {
   );
 }
 
-export function RecentCheckIns({ clientId, logs }: { clientId: string; logs: DailyLogRow[] }) {
+export function RecentCheckIns({
+  clientId,
+  logs,
+  unit = "METRIC",
+}: {
+  clientId: string;
+  logs: DailyLogRow[];
+  unit?: UnitPreference;
+}) {
   return (
     <Card>
       <CardHeader>
@@ -210,7 +296,12 @@ export function RecentCheckIns({ clientId, logs }: { clientId: string; logs: Dai
             >
               <span className="text-sm text-foreground">{format(new Date(log.log_date), "EEE, MMM d")}</span>
               <div className="flex items-center gap-2">
-                {log.morning_weight_kg && <span className="text-xs text-subtle">{log.morning_weight_kg}kg</span>}
+                {log.morning_weight_kg && (
+                  <span className="text-xs text-subtle">
+                    {displayWeight(log.morning_weight_kg, unit)}
+                    {unit === "IMPERIAL" ? "lb" : "kg"}
+                  </span>
+                )}
                 <StatusBadge status={log.status} />
               </div>
             </Link>

@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import { lbsToKg, feetInchesToCm } from "@/lib/utils/units";
 
 const SECTIONS = ["Account", "Basic Info", "Training", "Nutrition", "Lifestyle"] as const;
 
@@ -16,6 +17,7 @@ export function OnboardingForm({ token, fullName }: { token: string; fullName: s
   const [step, setStep] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [unit, setUnit] = useState<"METRIC" | "IMPERIAL">("METRIC");
   const [form, setForm] = useState<Record<string, string>>({ fullName });
 
   function update(key: string, value: string) {
@@ -26,15 +28,43 @@ export function OnboardingForm({ token, fullName }: { token: string; fullName: s
     setLoading(true);
     setError(null);
 
+    // Convert imperial inputs to canonical metric before sending — the API
+    // always stores height_cm / weight_kg regardless of display preference.
+    const heightCmValue =
+      unit === "IMPERIAL"
+        ? form.heightFeet || form.heightInches
+          ? feetInchesToCm(Number(form.heightFeet || 0), Number(form.heightInches || 0))
+          : undefined
+        : form.heightCm
+          ? Number(form.heightCm)
+          : undefined;
+    const currentWeightKgValue =
+      unit === "IMPERIAL"
+        ? form.currentWeightLbs
+          ? lbsToKg(Number(form.currentWeightLbs))
+          : undefined
+        : form.currentWeightKg
+          ? Number(form.currentWeightKg)
+          : undefined;
+    const goalWeightKgValue =
+      unit === "IMPERIAL"
+        ? form.goalWeightLbs
+          ? lbsToKg(Number(form.goalWeightLbs))
+          : undefined
+        : form.goalWeightKg
+          ? Number(form.goalWeightKg)
+          : undefined;
+
     const payload = {
       email: form.email,
       password: form.password,
       sex: form.sex,
       fullName: form.fullName,
       age: form.age || undefined,
-      heightCm: form.heightCm || undefined,
-      currentWeightKg: form.currentWeightKg || undefined,
-      goalWeightKg: form.goalWeightKg || undefined,
+      heightCm: heightCmValue,
+      currentWeightKg: currentWeightKgValue,
+      goalWeightKg: goalWeightKgValue,
+      unitPreference: unit,
       goal: form.goal || undefined,
       daysPerWeek: form.daysPerWeek || undefined,
       workoutDurationMin: form.workoutDurationMin || undefined,
@@ -53,20 +83,37 @@ export function OnboardingForm({ token, fullName }: { token: string; fullName: s
       motivation: form.motivation || undefined,
     };
 
-    const res = await fetch(`/api/onboarding/${token}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json();
-    setLoading(false);
+    try {
+      const res = await fetch(`/api/onboarding/${token}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
 
-    if (!res.ok) {
-      setError(data.error ?? "Something went wrong. Please try again.");
-      return;
+      let data: { error?: unknown } = {};
+      try {
+        data = await res.json();
+      } catch {
+        // Server returned a non-JSON response (e.g. a crash/timeout error
+        // page) — fall through to the generic error below instead of
+        // leaving the button stuck on "Submitting…" forever.
+      }
+
+      if (!res.ok) {
+        setError(
+          typeof data.error === "string"
+            ? data.error
+            : `Something went wrong (${res.status}). Please try again or contact your coach.`
+        );
+        return;
+      }
+
+      router.push("/login?onboarded=1");
+    } catch {
+      setError("Could not reach the server. Check your connection and try again.");
+    } finally {
+      setLoading(false);
     }
-
-    router.push("/login?onboarded=1");
   }
 
   return (
@@ -115,15 +162,44 @@ export function OnboardingForm({ token, fullName }: { token: string; fullName: s
             <Field label="Age">
               <Input type="number" value={form.age ?? ""} onChange={(e) => update("age", e.target.value)} />
             </Field>
-            <Field label="Height (cm)">
-              <Input type="number" value={form.heightCm ?? ""} onChange={(e) => update("heightCm", e.target.value)} />
+            <Field label="Units">
+              <Select value={unit} onChange={(e) => setUnit(e.target.value as "METRIC" | "IMPERIAL")}>
+                <option value="METRIC">Metric (kg / cm)</option>
+                <option value="IMPERIAL">Imperial (lb / ft-in)</option>
+              </Select>
             </Field>
-            <Field label="Current weight (kg)">
-              <Input type="number" step="0.1" value={form.currentWeightKg ?? ""} onChange={(e) => update("currentWeightKg", e.target.value)} />
-            </Field>
-            <Field label="Goal weight (kg)">
-              <Input type="number" step="0.1" value={form.goalWeightKg ?? ""} onChange={(e) => update("goalWeightKg", e.target.value)} />
-            </Field>
+
+            {unit === "IMPERIAL" ? (
+              <Field label="Height (ft / in)">
+                <div className="flex gap-2">
+                  <Input type="number" placeholder="ft" value={form.heightFeet ?? ""} onChange={(e) => update("heightFeet", e.target.value)} />
+                  <Input type="number" placeholder="in" value={form.heightInches ?? ""} onChange={(e) => update("heightInches", e.target.value)} />
+                </div>
+              </Field>
+            ) : (
+              <Field label="Height (cm)">
+                <Input type="number" value={form.heightCm ?? ""} onChange={(e) => update("heightCm", e.target.value)} />
+              </Field>
+            )}
+
+            {unit === "IMPERIAL" ? (
+              <Field label="Current weight (lb)">
+                <Input type="number" step="0.1" value={form.currentWeightLbs ?? ""} onChange={(e) => update("currentWeightLbs", e.target.value)} />
+              </Field>
+            ) : (
+              <Field label="Current weight (kg)">
+                <Input type="number" step="0.1" value={form.currentWeightKg ?? ""} onChange={(e) => update("currentWeightKg", e.target.value)} />
+              </Field>
+            )}
+            {unit === "IMPERIAL" ? (
+              <Field label="Goal weight (lb)">
+                <Input type="number" step="0.1" value={form.goalWeightLbs ?? ""} onChange={(e) => update("goalWeightLbs", e.target.value)} />
+              </Field>
+            ) : (
+              <Field label="Goal weight (kg)">
+                <Input type="number" step="0.1" value={form.goalWeightKg ?? ""} onChange={(e) => update("goalWeightKg", e.target.value)} />
+              </Field>
+            )}
             <Field label="Main goal" full>
               <Select value={form.goal ?? ""} onChange={(e) => update("goal", e.target.value)}>
                 <option value="">Select…</option>

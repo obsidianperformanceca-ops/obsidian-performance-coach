@@ -5,6 +5,8 @@ import { Avatar } from "@/components/ui/avatar";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { cn } from "@/lib/utils/cn";
 import { formatDistanceToNow } from "date-fns";
+import { displayWeight } from "@/lib/utils/units";
+import type { UnitPreference } from "@/types/database";
 
 const GOAL_LABEL: Record<string, string> = {
   FAT_LOSS: "Fat Loss",
@@ -27,6 +29,7 @@ export interface ClientCardData {
   lastCheckIn: string | null;
   complianceScore: number; // 0-100
   status: string;
+  unitPreference: UnitPreference;
 }
 
 export function ClientCard({ client }: { client: ClientCardData }) {
@@ -34,6 +37,14 @@ export function ClientCard({ client }: { client: ClientCardData }) {
     ? Math.floor((Date.now() - new Date(client.lastCheckIn).getTime()) / 86_400_000)
     : null;
   const atRisk = daysSinceCheckIn === null || daysSinceCheckIn >= 3;
+  const unitLabel = client.unitPreference === "IMPERIAL" ? "lb" : "kg";
+  const displayedWeight = displayWeight(client.currentWeightKg, client.unitPreference);
+  const displayedChange =
+    client.weeklyChangeKg != null
+      ? Math.round(
+          (client.unitPreference === "IMPERIAL" ? client.weeklyChangeKg / 0.45359237 : client.weeklyChangeKg) * 10
+        ) / 10
+      : null;
 
   return (
     <Link href={`/coach/clients/${client.id}`}>
@@ -55,7 +66,7 @@ export function ClientCard({ client }: { client: ClientCardData }) {
           <div>
             <p className="text-xs text-subtle">Weight</p>
             <p className="font-medium text-foreground">
-              {client.currentWeightKg ? `${client.currentWeightKg} kg` : "—"}
+              {displayedWeight != null ? `${displayedWeight} ${unitLabel}` : "—"}
             </p>
           </div>
           <div>
@@ -72,9 +83,7 @@ export function ClientCard({ client }: { client: ClientCardData }) {
                       : "text-foreground"
               )}
             >
-              {client.weeklyChangeKg != null
-                ? `${client.weeklyChangeKg > 0 ? "+" : ""}${client.weeklyChangeKg} kg`
-                : "—"}
+              {displayedChange != null ? `${displayedChange > 0 ? "+" : ""}${displayedChange} ${unitLabel}` : "—"}
             </p>
           </div>
           <div>

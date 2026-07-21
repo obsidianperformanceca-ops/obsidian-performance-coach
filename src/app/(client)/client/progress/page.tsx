@@ -1,8 +1,10 @@
 import { requireClient } from "@/lib/auth/session";
 import { getWeightsForClient } from "@/lib/db/weights";
 import { getMeasurementsForClient } from "@/lib/db/measurements";
-import { getPhotosForClient } from "@/lib/db/photos";
+import { getPhotosForClient, getSignedPhotoUrls } from "@/lib/db/photos";
 import { getDailyLogsForClient } from "@/lib/db/daily-logs";
+import { PhotoUpload } from "@/components/client/photo-upload";
+import { format } from "date-fns";
 import {
   weeklyAverageWeight,
   weeklyWeightChange,
@@ -14,6 +16,7 @@ import { StatCard } from "@/components/shared/stat-card";
 import { WeightChart } from "@/components/charts/weight-chart";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { ProgressBar } from "@/components/ui/progress-bar";
+import { formatWeight } from "@/lib/utils/units";
 
 export default async function ClientProgressPage() {
   const { client } = await requireClient();
@@ -35,26 +38,31 @@ export default async function ClientProgressPage() {
     30
   );
   const latestMeasurement = measurements[0];
+  const photoUrls = await getSignedPhotoUrls(photos);
 
   return (
     <div>
       <PageHeader title="Your Progress" description="Weight, measurements, and consistency over time." />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Weekly average" value={weeklyAvg != null ? `${weeklyAvg} kg` : "—"} />
+        <StatCard label="Weekly average" value={weeklyAvg != null ? formatWeight(weeklyAvg, client.unit_preference) : "—"} />
         <StatCard
           label="Weekly change"
-          value={weeklyChange != null ? `${weeklyChange > 0 ? "+" : ""}${weeklyChange} kg` : "—"}
+          value={weeklyChange != null ? `${weeklyChange > 0 ? "+" : ""}${formatWeight(weeklyChange, client.unit_preference)}` : "—"}
           trend={weeklyChange == null ? "neutral" : weeklyChange < 0 ? "up" : weeklyChange > 0 ? "down" : "neutral"}
         />
-        <StatCard label="Monthly change" value={monthlyChange != null ? `${monthlyChange > 0 ? "+" : ""}${monthlyChange} kg` : "—"} />
-        <StatCard label="Goal weight" value={client.goal_weight_kg ? `${client.goal_weight_kg} kg` : "—"} />
+        <StatCard label="Monthly change" value={monthlyChange != null ? `${monthlyChange > 0 ? "+" : ""}${formatWeight(monthlyChange, client.unit_preference)}` : "—"} />
+        <StatCard label="Goal weight" value={formatWeight(client.goal_weight_kg, client.unit_preference)} />
       </div>
 
       <Card className="mt-6">
         <CardHeader><CardTitle>Weight over time</CardTitle></CardHeader>
         {weights.length > 0 ? (
-          <WeightChart data={weights.map((w) => ({ date: w.recorded_at, weightKg: w.weight_kg }))} goalWeightKg={client.goal_weight_kg} />
+          <WeightChart
+            data={weights.map((w) => ({ date: w.recorded_at, weightKg: w.weight_kg }))}
+            goalWeightKg={client.goal_weight_kg}
+            unit={client.unit_preference}
+          />
         ) : (
           <p className="text-sm text-muted">No weight entries yet.</p>
         )}
@@ -88,13 +96,30 @@ export default async function ClientProgressPage() {
       </div>
 
       <Card className="mt-6">
-        <CardHeader><CardTitle>Progress Photos</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle>Progress Photos</CardTitle>
+        </CardHeader>
+        <div className="mb-4">
+          <PhotoUpload clientId={client.id} />
+        </div>
         {photos.length === 0 ? (
-          <p className="text-sm text-muted">No progress photos yet.</p>
+          <p className="text-sm text-muted">
+            No progress photos yet — upload one every week or two to track visual change over time.
+          </p>
         ) : (
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {photos.map((p) => (
-              <div key={p.id} className="aspect-[3/4] rounded-lg bg-surface-2" />
+              <div key={p.id} className="overflow-hidden rounded-lg bg-surface-2">
+                {photoUrls[p.id] ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={photoUrls[p.id]} alt="Progress" className="aspect-[3/4] w-full object-cover" />
+                ) : (
+                  <div className="aspect-[3/4]" />
+                )}
+                <p className="px-2 py-1 text-center text-[10px] text-subtle">
+                  {format(new Date(p.taken_at), "MMM d, yyyy")}
+                </p>
+              </div>
             ))}
           </div>
         )}
