@@ -107,6 +107,17 @@ export const messageSchema = z.object({
   body: z.string().min(1, "Message can't be empty"),
 });
 
+// Public lead-capture form on the marketing homepage — not an account
+// signup. See src/app/api/leads/route.ts for why this is separate from
+// the client onboarding invite flow.
+export const leadSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  email: z.string().email("Valid email required"),
+  phone: z.string().optional(),
+  goals: z.string().min(1, "Please share your goals"),
+});
+export type LeadInput = z.infer<typeof leadSchema>;
+
 export const workoutProgramSchema = z.object({
   name: z.string().min(1),
   notes: z.string().optional(),

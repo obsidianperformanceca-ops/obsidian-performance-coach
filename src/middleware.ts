@@ -2,9 +2,13 @@ import { type NextRequest, NextResponse } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
 import { createServerClient } from "@supabase/ssr";
 
-const PUBLIC_PATHS = ["/login", "/onboarding", "/auth"];
+const PUBLIC_PATHS = ["/login", "/onboarding", "/auth", "/api/leads"];
 
 function isPublic(pathname: string) {
+  // Exact match only for "/" — the marketing homepage. Using startsWith
+  // here would make every route public, so it's handled separately from
+  // the prefix-matched paths below.
+  if (pathname === "/") return true;
   return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 

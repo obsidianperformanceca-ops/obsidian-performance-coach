@@ -56,3 +56,49 @@ export async function sendOnboardingInviteEmail({
     return { success: false, error: err instanceof Error ? err.message : "Could not send email" };
   }
 }
+
+/**
+ * Sends a notification email (to LEAD_NOTIFICATION_EMAIL) when a prospect
+ * submits the public "Book a Consultation" form on the marketing homepage.
+ * Requires both RESEND_API_KEY and LEAD_NOTIFICATION_EMAIL to be set.
+ */
+export async function sendLeadNotificationEmail({
+  name,
+  email,
+  phone,
+  goals,
+}: {
+  name: string;
+  email: string;
+  phone?: string;
+  goals: string;
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    const notifyTo = process.env.LEAD_NOTIFICATION_EMAIL;
+    if (!notifyTo) throw new Error("LEAD_NOTIFICATION_EMAIL is not set");
+
+    const resend = getClient();
+    const from = process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev";
+
+    const { error } = await resend.emails.send({
+      from: `Obsidian Website <${from}>`,
+      to: notifyTo,
+      replyTo: email,
+      subject: `New consultation request — ${name}`,
+      html: `
+        <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
+          <p><strong>Name:</strong> ${name}</p>
+          <p><strong>Email:</strong> ${email}</p>
+          <p><strong>Phone:</strong> ${phone || "—"}</p>
+          <p><strong>Goals:</strong></p>
+          <p style="white-space: pre-wrap;">${goals}</p>
+        </div>
+      `,
+    });
+
+    if (error) return { success: false, error: error.message };
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Could not send email" };
+  }
+}
