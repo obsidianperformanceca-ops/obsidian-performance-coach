@@ -1,0 +1,509 @@
+// Obsidian Performance Coach — Database Schema
+// Postgres via Supabase. Prisma is used for type-safe modeling + migration
+// generation; runtime queries also flow through Supabase (auth.uid()-aware
+// RLS policies, see supabase/migrations/0002_rls.sql).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ---------------------------------------------------------------------------
+// ENUMS
+// ---------------------------------------------------------------------------
+
+enum Role {
+  COACH
+  CLIENT
+}
+
+enum ClientStatus {
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+enum Goal {
+  FAT_LOSS
+  MUSCLE_GAIN
+  RECOMP
+  MAINTENANCE
+  PERFORMANCE
+  GENERAL_HEALTH
+}
+
+enum ActivityLevel {
+  SEDENTARY
+  LIGHTLY_ACTIVE
+  MODERATELY_ACTIVE
+  VERY_ACTIVE
+  EXTREMELY_ACTIVE
+}
+
+enum ExperienceLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+enum TrainingLocation {
+  GYM
+  HOME
+  HYBRID
+}
+
+enum DayStatus {
+  PENDING
+  SUBMITTED
+  REVIEWED
+  APPROVED
+}
+
+enum MealType {
+  BREAKFAST
+  LUNCH
+  DINNER
+  SNACK
+  DRINK
+}
+
+enum MessageSenderRole {
+  COACH
+  CLIENT
+}
+
+enum NotificationType {
+  MISSED_CHECKIN
+  MISSED_WORKOUT
+  WEEKLY_CHECKIN_DUE
+  COACH_FEEDBACK
+  COACH_MESSAGE
+  DAY_APPROVED
+}
+
+enum InviteStatus {
+  PENDING
+  COMPLETED
+  EXPIRED
+}
+
+// ---------------------------------------------------------------------------
+// USERS
+// ---------------------------------------------------------------------------
+
+/// Mirrors a Supabase auth.users row (id matches auth.uid()).
+/// Created via a trigger on auth.users insert — see 0001_init.sql.
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  fullName  String?
+  role      Role     @default(CLIENT)
+  avatarUrl String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  coachedClients Client[]    @relation("CoachClients")
+  clientProfile  Client?     @relation("UserClientProfile")
+  coachNotes     CoachNote[] @relation("NoteAuthor")
+  sentMessages   Message[]   @relation("MessageSender")
+  notifications  Notification[]
+
+  @@map("users")
+}
+
+// ---------------------------------------------------------------------------
+// CLIENTS
+// ---------------------------------------------------------------------------
+
+model Client {
+  id     String  @id @default(uuid())
+  userId String? @unique
+  user   User?   @relation("UserClientProfile", fields: [userId], references: [id], onDelete: Cascade)
+
+  coachId String
+  coach   User   @relation("CoachClients", fields: [coachId], references: [id], onDelete: Cascade)
+
+  status ClientStatus @default(ACTIVE)
+
+  // --- Basic Information ---
+  fullName            String
+  age                 Int?
+  heightCm            Float?
+  startingWeightKg    Float?
+  currentWeightKg     Float?
+  goalWeightKg        Float?
+  goal                Goal?
+  activityLevel       ActivityLevel?
+  occupation          String?
+  injuries            String?
+  experienceLevel     ExperienceLevel?
+  equipmentAvailable  String?
+  trainingLocation    TrainingLocation?
+
+  // --- Lifestyle Goals ---
+  sleepGoalHours Float?
+  stepGoal       Int?
+  cardioGoalMin  Int?
+
+  // --- Onboarding link ---
+  inviteToken     String?      @unique
+  inviteStatus    InviteStatus @default(PENDING)
+  inviteExpiresAt DateTime?
+  onboardedAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  targets         Target[]
+  dailyLogs       DailyLog[]
+  weights         Weight[]
+  measurements    Measurement[]
+  progressPhotos  ProgressPhoto[]
+  coachNotes      CoachNote[]
+  messages        Message[]
+  notifications   Notification[]
+  workoutPrograms WorkoutProgram[]
+  onboardingForm  OnboardingResponse?
+
+  @@index([coachId])
+  @@index([status])
+  @@map("clients")
+}
+
+// ---------------------------------------------------------------------------
+// ONBOARDING
+// ---------------------------------------------------------------------------
+
+/// Raw questionnaire answers captured at signup, kept for reference even
+/// after they're normalized into the Client + Target records.
+model OnboardingResponse {
+  id       String @id @default(uuid())
+  clientId String @unique
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  // Training
+  daysPerWeek        Int?
+  workoutDurationMin Int?
+  gymOrHome          TrainingLocation?
+  experience         ExperienceLevel?
+  injuries           String?
+
+  // Nutrition
+  typicalEatingHabits String?
+  foodsEnjoyed        String?
+  allergies           String?
+  mealsPerDay         Int?
+  alcohol             String?
+
+  // Lifestyle
+  job        String?
+  dailySteps Int?
+  sleepHours Float?
+  motivation String?
+
+  submittedAt DateTime @default(now())
+
+  @@map("onboarding_responses")
+}
+
+// ---------------------------------------------------------------------------
+// TARGETS (nutrition + versioned so history is preserved)
+// ---------------------------------------------------------------------------
+
+model Target {
+  id       String @id @default(uuid())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  calories Int?
+  proteinG Int?
+  carbsG   Int?
+  fatG     Int?
+  waterMl  Int?
+
+  isActive      Boolean  @default(true)
+  effectiveFrom DateTime @default(now())
+  createdAt     DateTime @default(now())
+
+  @@index([clientId, isActive])
+  @@map("targets")
+}
+
+// ---------------------------------------------------------------------------
+// DAILY LOGS + MEALS
+// ---------------------------------------------------------------------------
+
+model DailyLog {
+  id       String @id @default(uuid())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  logDate DateTime @db.Date
+
+  morningWeightKg Float?
+
+  waterMl          Int?
+  workoutCompleted Boolean?
+  workoutName      String?
+  steps            Int?
+  sleepHours       Float?
+  energyLevel      Int? // 1-10
+  hungerLevel      Int? // 1-10
+  digestion        String?
+  clientNotes      String?
+
+  status DayStatus @default(PENDING)
+
+  // Coach food review (estimates + feedback)
+  estCalories   Int?
+  estProteinG   Int?
+  estCarbsG     Int?
+  estFatG       Int?
+  coachFeedback String?
+  reviewedAt    DateTime?
+  approvedAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  meals Meal[]
+
+  @@unique([clientId, logDate])
+  @@index([clientId, logDate])
+  @@map("daily_logs")
+}
+
+model Meal {
+  id         String   @id @default(uuid())
+  dailyLogId String
+  dailyLog   DailyLog @relation(fields: [dailyLogId], references: [id], onDelete: Cascade)
+
+  type        MealType
+  description String // free text, e.g. "2 eggs, toast, protein shake"
+
+  // Optional per-meal coach estimates (day-level totals are on DailyLog)
+  estCalories Int?
+  estProteinG Int?
+  estCarbsG   Int?
+  estFatG     Int?
+
+  createdAt DateTime @default(now())
+
+  @@index([dailyLogId])
+  @@map("meals")
+}
+
+// ---------------------------------------------------------------------------
+// WORKOUT PROGRAMS
+// ---------------------------------------------------------------------------
+
+model WorkoutProgram {
+  id       String @id @default(uuid())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  name      String
+  notes     String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  days WorkoutDay[]
+
+  @@index([clientId, isActive])
+  @@map("workout_programs")
+}
+
+/// A single day within a program, e.g. "Day 1 — Push"
+model WorkoutDay {
+  id        String         @id @default(uuid())
+  programId String
+  program   WorkoutProgram @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  name     String
+  dayOrder Int    @default(0)
+
+  exercises Exercise[]
+  sessions  WorkoutSession[]
+
+  @@index([programId])
+  @@map("workout_days")
+}
+
+model Exercise {
+  id           String     @id @default(uuid())
+  workoutDayId String
+  workoutDay   WorkoutDay @relation(fields: [workoutDayId], references: [id], onDelete: Cascade)
+
+  name          String
+  sets          Int
+  reps          String // e.g. "8-10" — kept as text to allow ranges/AMRAP
+  rpe           Float?
+  notes         String?
+  exerciseOrder Int     @default(0)
+
+  setLogs ExerciseSetLog[]
+
+  @@index([workoutDayId])
+  @@map("exercises")
+}
+
+/// A client's assigned-workout-day occurrence (one per time they train that day)
+model WorkoutSession {
+  id           String     @id @default(uuid())
+  workoutDayId String
+  workoutDay   WorkoutDay @relation(fields: [workoutDayId], references: [id], onDelete: Cascade)
+
+  clientId String
+
+  completedAt  DateTime?
+  scheduledFor DateTime  @default(now())
+  notes        String?
+
+  createdAt DateTime @default(now())
+
+  setLogs ExerciseSetLog[]
+
+  @@index([clientId])
+  @@index([workoutDayId])
+  @@map("workout_sessions")
+}
+
+/// Actual performance for one exercise within one session — weight/reps per set.
+model ExerciseSetLog {
+  id        String         @id @default(uuid())
+  sessionId String
+  session   WorkoutSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  exerciseId String
+  exercise   Exercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+
+  setNumber     Int
+  weightKg      Float?
+  repsCompleted Int?
+  rpe           Float?
+  isPr          Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@index([sessionId])
+  @@index([exerciseId])
+  @@map("exercise_set_logs")
+}
+
+// ---------------------------------------------------------------------------
+// PROGRESS
+// ---------------------------------------------------------------------------
+
+model Weight {
+  id       String @id @default(uuid())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  weightKg   Float
+  recordedAt DateTime @default(now())
+
+  createdAt DateTime @default(now())
+
+  @@index([clientId, recordedAt])
+  @@map("weights")
+}
+
+model Measurement {
+  id       String @id @default(uuid())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  waistCm Float?
+  chestCm Float?
+  hipsCm  Float?
+  armCm   Float?
+  thighCm Float?
+
+  recordedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@index([clientId, recordedAt])
+  @@map("measurements")
+}
+
+model ProgressPhoto {
+  id       String @id @default(uuid())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  storagePath String // Supabase Storage object path
+  angle       String? // front / side / back
+  takenAt     DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@index([clientId, takenAt])
+  @@map("progress_photos")
+}
+
+// ---------------------------------------------------------------------------
+// COACH NOTES (private)
+// ---------------------------------------------------------------------------
+
+model CoachNote {
+  id       String @id @default(uuid())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  authorId String
+  author   User   @relation("NoteAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+
+  body      String
+  createdAt DateTime @default(now())
+
+  @@index([clientId])
+  @@map("coach_notes")
+}
+
+// ---------------------------------------------------------------------------
+// MESSAGING
+// ---------------------------------------------------------------------------
+
+model Message {
+  id       String @id @default(uuid())
+  clientId String // the thread this message belongs to (coach<->this client)
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  senderId   String
+  sender     User               @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  senderRole MessageSenderRole
+
+  body      String
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([clientId, createdAt])
+  @@map("messages")
+}
+
+// ---------------------------------------------------------------------------
+// NOTIFICATIONS
+// ---------------------------------------------------------------------------
+
+model Notification {
+  id       String  @id @default(uuid())
+  userId   String
+  user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  type   NotificationType
+  title  String
+  body   String?
+  readAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, readAt])
+  @@map("notifications")
+}

@@ -1,0 +1,53 @@
+import { createClient } from "@/lib/supabase/server";
+import type { Database } from "@/types/database";
+
+export type TargetRow = Database["public"]["Tables"]["targets"]["Row"];
+
+export async function getActiveTargetsForClients(
+  clientIds: string[]
+): Promise<Record<string, TargetRow>> {
+  if (clientIds.length === 0) return {};
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("targets")
+    .select("*")
+    .in("client_id", clientIds)
+    .eq("is_active", true);
+
+  if (error) throw error;
+  const map: Record<string, TargetRow> = {};
+  for (const row of data ?? []) map[row.client_id] = row;
+  return map;
+}
+
+export async function getActiveTarget(clientId: string): Promise<TargetRow | null> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("targets")
+    .select("*")
+    .eq("client_id", clientId)
+    .eq("is_active", true)
+    .order("effective_from", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return data ?? null;
+}
+
+export async function setActiveTarget(
+  clientId: string,
+  values: { calories?: number; proteinG?: number; carbsG?: number; fatG?: number; waterMl?: number }
+) {
+  const supabase = await createClient();
+  // Deactivate current target, insert a new one — keeps history.
+  await supabase.from("targets").update({ is_active: false }).eq("client_id", clientId).eq("is_active", true);
+  const { error } = await supabase.from("targets").insert({
+    client_id: clientId,
+    calories: values.calories,
+    protein_g: values.proteinG,
+    carbs_g: values.carbsG,
+    fat_g: values.fatG,
+    water_ml: values.waterMl,
+    is_active: true,
+  });
+  if (error) throw error;
+}
