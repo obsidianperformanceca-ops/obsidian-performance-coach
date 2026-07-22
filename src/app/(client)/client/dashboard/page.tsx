@@ -5,9 +5,11 @@ import { getWeightsForClient } from "@/lib/db/weights";
 import { getDailyLogsForClient, getOrCreateTodayLog, getDailyLogWithMeals } from "@/lib/db/daily-logs";
 import { getActiveProgramForClient } from "@/lib/db/workouts";
 import { computeStreak } from "@/lib/calculations/progress";
+import { sumMealTotals } from "@/lib/calculations/nutrition";
 import { formatWeight } from "@/lib/utils/units";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatCard } from "@/components/shared/stat-card";
+import { NutritionSummary } from "@/components/shared/nutrition-summary";
 import { WeightChart } from "@/components/charts/weight-chart";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -27,6 +29,7 @@ export default async function ClientDashboardPage() {
     getOrCreateTodayLog(client.id),
   ]);
   const { meals: todayMeals } = await getDailyLogWithMeals(todayLog.id);
+  const consumedToday = sumMealTotals(todayMeals);
 
   const streak = computeStreak(
     logs.map((l) => ({
@@ -92,6 +95,10 @@ export default async function ClientDashboardPage() {
             <p className="text-sm text-muted">No program assigned yet.</p>
           )}
         </Card>
+      </div>
+
+      <div className="mt-6">
+        <NutritionSummary consumed={consumedToday} target={target} />
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">

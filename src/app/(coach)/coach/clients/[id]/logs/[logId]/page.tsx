@@ -3,7 +3,10 @@ import { format } from "date-fns";
 import { requireCoach } from "@/lib/auth/session";
 import { getClientById } from "@/lib/db/clients";
 import { getDailyLogWithMeals } from "@/lib/db/daily-logs";
+import { getActiveTarget } from "@/lib/db/targets";
+import { sumMealTotals } from "@/lib/calculations/nutrition";
 import { PageHeader } from "@/components/shared/page-header";
+import { NutritionSummary } from "@/components/shared/nutrition-summary";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -32,8 +35,10 @@ export default async function FoodReviewPage({
   const client = await getClientById(id);
   if (!client) notFound();
 
-  const { log, meals } = await getDailyLogWithMeals(logId);
+  const [{ log, meals }, target] = await Promise.all([getDailyLogWithMeals(logId), getActiveTarget(id)]);
   if (!log) notFound();
+
+  const loggedTotals = sumMealTotals(meals);
 
   return (
     <div>
@@ -45,6 +50,8 @@ export default async function FoodReviewPage({
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
+          <NutritionSummary consumed={loggedTotals} target={target} />
+
           <Card>
             <CardHeader><CardTitle>Meals</CardTitle></CardHeader>
             {meals.length === 0 ? (
@@ -53,8 +60,20 @@ export default async function FoodReviewPage({
               <div className="space-y-3">
                 {meals.map((m) => (
                   <div key={m.id} className="rounded-lg bg-surface-2 p-3">
-                    <Badge tone="accent">{MEAL_LABEL[m.type] ?? m.type}</Badge>
-                    <p className="mt-2 text-sm text-foreground">{m.description}</p>
+                    <div className="flex items-center justify-between">
+                      <Badge tone="accent">{MEAL_LABEL[m.type] ?? m.type}</Badge>
+                      {m.est_calories != null && (
+                        <span className="text-xs text-subtle">
+                          {m.est_calories} kcal
+                          {(m.est_protein_g != null || m.est_carbs_g != null || m.est_fat_g != null) &&
+                            ` · P ${m.est_protein_g ?? 0}g · C ${m.est_carbs_g ?? 0}g · F ${m.est_fat_g ?? 0}g`}
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-2 text-sm text-foreground">
+                      {m.description}
+                      {m.serving_size && <span className="text-subtle"> · {m.serving_size}</span>}
+                    </p>
                   </div>
                 ))}
               </div>
@@ -84,23 +103,26 @@ export default async function FoodReviewPage({
 
         <Card>
           <CardHeader><CardTitle>Coach Review</CardTitle></CardHeader>
+          <p className="mb-1 text-xs text-subtle">
+            Pre-filled from the client&apos;s logged meals — adjust as needed before approving.
+          </p>
           <form action={submitFoodReviewAction.bind(null, id, logId)} className="space-y-4">
             <div>
               <Label>Estimated calories</Label>
-              <Input name="estCalories" type="number" defaultValue={log.est_calories ?? ""} />
+              <Input name="estCalories" type="number" defaultValue={log.est_calories ?? (loggedTotals.calories || "")} />
             </div>
             <div className="grid grid-cols-3 gap-2">
               <div>
                 <Label>Protein (g)</Label>
-                <Input name="estProteinG" type="number" defaultValue={log.est_protein_g ?? ""} />
+                <Input name="estProteinG" type="number" defaultValue={log.est_protein_g ?? (loggedTotals.proteinG || "")} />
               </div>
               <div>
                 <Label>Carbs (g)</Label>
-                <Input name="estCarbsG" type="number" defaultValue={log.est_carbs_g ?? ""} />
+                <Input name="estCarbsG" type="number" defaultValue={log.est_carbs_g ?? (loggedTotals.carbsG || "")} />
               </div>
               <div>
                 <Label>Fat (g)</Label>
-                <Input name="estFatG" type="number" defaultValue={log.est_fat_g ?? ""} />
+                <Input name="estFatG" type="number" defaultValue={log.est_fat_g ?? (loggedTotals.fatG || "")} />
               </div>
             </div>
             <div>

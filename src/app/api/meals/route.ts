@@ -5,10 +5,28 @@ import { getOrCreateTodayLog } from "@/lib/db/daily-logs";
 
 const MEAL_TYPES = ["BREAKFAST", "LUNCH", "DINNER", "SNACK", "DRINK"] as const;
 
+// Accepts optional macro fields so a meal can be logged with AI-estimated
+// or manually-entered calories/protein/carbs/fat right away — this is what
+// makes the "remaining calories today" total on the dashboard live instead
+// of waiting on a retroactive coach review.
+function toFiniteNumberOrNull(value: unknown): number | null {
+  if (value === undefined || value === null || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
 export async function POST(request: Request) {
   const { client } = await requireClient();
   const body = await request.json();
-  const { type, description } = body as { type?: string; description?: string };
+  const { type, description, servingSize, estCalories, estProteinG, estCarbsG, estFatG } = body as {
+    type?: string;
+    description?: string;
+    servingSize?: string;
+    estCalories?: unknown;
+    estProteinG?: unknown;
+    estCarbsG?: unknown;
+    estFatG?: unknown;
+  };
 
   if (!type || !MEAL_TYPES.includes(type as (typeof MEAL_TYPES)[number])) {
     return NextResponse.json({ error: "Invalid meal type" }, { status: 400 });
@@ -22,7 +40,16 @@ export async function POST(request: Request) {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("meals")
-    .insert({ daily_log_id: todayLog.id, type: type as (typeof MEAL_TYPES)[number], description: description.trim() })
+    .insert({
+      daily_log_id: todayLog.id,
+      type: type as (typeof MEAL_TYPES)[number],
+      description: description.trim(),
+      serving_size: servingSize?.trim() || null,
+      est_calories: toFiniteNumberOrNull(estCalories),
+      est_protein_g: toFiniteNumberOrNull(estProteinG),
+      est_carbs_g: toFiniteNumberOrNull(estCarbsG),
+      est_fat_g: toFiniteNumberOrNull(estFatG),
+    })
     .select("*")
     .single();
 

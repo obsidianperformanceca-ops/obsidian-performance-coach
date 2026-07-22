@@ -173,6 +173,7 @@ export interface Database {
           daily_log_id: string;
           type: MealType;
           description: string;
+          serving_size: string | null;
           est_calories: number | null;
           est_protein_g: number | null;
           est_carbs_g: number | null;
