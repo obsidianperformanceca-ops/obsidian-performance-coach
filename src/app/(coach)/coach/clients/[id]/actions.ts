@@ -99,6 +99,28 @@ export async function addWeightAction(clientId: string, formData: FormData) {
   revalidatePath(`/coach/clients/${clientId}`);
 }
 
+export async function addSupplementAction(clientId: string, formData: FormData) {
+  await requireCoach();
+  const supplement = str(formData.get("supplement")).trim();
+  if (!supplement) return;
+  const supabase = await createClient();
+  await supabase.from("supplement_protocols").insert({
+    client_id: clientId,
+    supplement,
+    dose: str(formData.get("dose")).trim() || null,
+    timing: str(formData.get("timing")).trim() || null,
+    notes: str(formData.get("notes")).trim() || null,
+  });
+  revalidatePath(`/coach/clients/${clientId}`);
+}
+
+export async function deleteSupplementAction(clientId: string, supplementId: string) {
+  await requireCoach();
+  const supabase = await createClient();
+  await supabase.from("supplement_protocols").delete().eq("id", supplementId);
+  revalidatePath(`/coach/clients/${clientId}`);
+}
+
 function num(v: FormDataEntryValue | null): number | undefined {
   if (v == null || v === "") return undefined;
   const n = Number(v);

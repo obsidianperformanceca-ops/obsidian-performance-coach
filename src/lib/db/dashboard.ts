@@ -6,6 +6,12 @@ import { weeklyAverageWeight, weeklyWeightChange, daysSince, compliancePercent }
 import { subDays } from "date-fns";
 import type { ClientCardData } from "@/components/coach/client-card";
 
+export interface TriageItem {
+  client: ClientRow;
+  reasons: string[];
+  severity: "high" | "medium";
+}
+
 export interface CoachDashboardData {
   clients: ClientCardData[];
   totalClients: number;
@@ -13,6 +19,7 @@ export interface CoachDashboardData {
   missedCheckIns: ClientRow[];
   latestCheckIns: { client: ClientRow; logDate: string }[];
   upcomingWeeklyCheckIns: ClientRow[];
+  triage: TriageItem[];
 }
 
 export async function getCoachDashboardData(coachId: string): Promise<CoachDashboardData> {
@@ -76,6 +83,51 @@ export async function getCoachDashboardData(coachId: string): Promise<CoachDashb
     return c.status === "ACTIVE" && days !== null && days >= 6;
   });
 
+  // Triage queue — surfaces WHY each client needs attention, ranked. Only
+  // active clients; a client can appear for multiple reasons.
+  const triage: TriageItem[] = [];
+  for (const c of clients) {
+    if (c.status !== "ACTIVE") continue;
+    const reasons: string[] = [];
+    let high = false;
+
+    const lastLog = latestLogMap[c.id]?.log_date ?? null;
+    const daysGone = daysSince(lastLog);
+    if (daysGone === null) {
+      reasons.push("Never checked in");
+      high = true;
+    } else if (daysGone >= 3) {
+      reasons.push(`No check-in in ${daysGone} days`);
+      high = true;
+    } else if (daysGone >= 2) {
+      reasons.push(`No check-in in ${daysGone} days`);
+    }
+
+    // Weight stalled: 2+ weeks of data but essentially no movement.
+    const weights = weightsMap[c.id] ?? [];
+    if (weights.length >= 2 && c.goal && c.goal !== "MAINTENANCE" && c.goal !== "GENERAL_HEALTH") {
+      const change = weeklyWeightChange(weights.map((w) => ({ weightKg: w.weight_kg, recordedAt: w.recorded_at })));
+      if (change !== null && Math.abs(change) < 0.1) {
+        reasons.push("Weight stalled this week");
+      }
+    }
+
+    // Unreviewed submitted food days in the last week.
+    const recentLogs = recentLogsMap[c.id] ?? [];
+    const unreviewed = recentLogs.filter((l) => l.status === "SUBMITTED").length;
+    if (unreviewed > 0) {
+      reasons.push(`${unreviewed} day${unreviewed === 1 ? "" : "s"} to review`);
+    }
+
+    if (reasons.length > 0) {
+      triage.push({ client: c, reasons, severity: high ? "high" : "medium" });
+    }
+  }
+  triage.sort((a, b) => {
+    if (a.severity !== b.severity) return a.severity === "high" ? -1 : 1;
+    return b.reasons.length - a.reasons.length;
+  });
+
   return {
     clients: clientCards,
     totalClients: clients.length,
@@ -83,5 +135,6 @@ export async function getCoachDashboardData(coachId: string): Promise<CoachDashb
     missedCheckIns,
     latestCheckIns,
     upcomingWeeklyCheckIns,
+    triage,
   };
 }

@@ -9,7 +9,8 @@ import { getPhotosForClient, getSignedPhotoUrls } from "@/lib/db/photos";
 import { format } from "date-fns";
 import { getNotesForClient } from "@/lib/db/notes";
 import { getDailyLogsForClient } from "@/lib/db/daily-logs";
-import { weeklyAverageWeight, weeklyWeightChange, monthlyWeightChange } from "@/lib/calculations/progress";
+import { getSupplementsForClient } from "@/lib/db/supplements";
+import { weeklyAverageWeight, weeklyWeightChange, monthlyWeightChange, complianceBreakdown } from "@/lib/calculations/progress";
 import { formatWeight } from "@/lib/utils/units";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatCard } from "@/components/shared/stat-card";
@@ -25,6 +26,10 @@ import {
   MeasurementsCard,
   RecentCheckIns,
 } from "@/components/coach/profile-sections";
+import { SupplementsCard } from "@/components/coach/supplements-card";
+import { ComplianceCard } from "@/components/coach/compliance-card";
+import { CheckinDraft } from "@/components/coach/checkin-draft";
+import { PhotoCompare } from "@/components/coach/photo-compare";
 import {
   updateBasicInfoAction,
   updateTargetsAction,
@@ -32,6 +37,8 @@ import {
   addNoteAction,
   addMeasurementAction,
   addWeightAction,
+  addSupplementAction,
+  deleteSupplementAction,
 } from "./actions";
 
 export default async function ClientProfilePage({ params }: { params: Promise<{ id: string }> }) {
@@ -41,13 +48,15 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
   const client = await getClientById(id);
   if (!client) notFound();
 
-  const [target, weights, measurements, photos, notes, logs] = await Promise.all([
+  const [target, weights, measurements, photos, notes, logs, logs30, supplements] = await Promise.all([
     getActiveTarget(id),
     getWeightsForClient(id),
     getMeasurementsForClient(id),
     getPhotosForClient(id),
     getNotesForClient(id),
     getDailyLogsForClient(id, 14),
+    getDailyLogsForClient(id, 30),
+    getSupplementsForClient(id),
   ]);
 
   const weightPoints = weights.map((w) => ({ weightKg: w.weight_kg, recordedAt: w.recorded_at }));
@@ -55,6 +64,12 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
   const weeklyChange = weeklyWeightChange(weightPoints);
   const monthlyChange = monthlyWeightChange(weightPoints);
   const photoUrls = await getSignedPhotoUrls(photos);
+
+  const compliance = complianceBreakdown(
+    logs30.map((l) => ({ status: l.status, workoutCompleted: l.workout_completed, steps: l.steps })),
+    client.step_goal,
+    30
+  );
 
   return (
     <div>
@@ -131,34 +146,26 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <ComplianceCard breakdown={compliance} days={30} hasStepGoal={client.step_goal != null} />
+        <CheckinDraft clientId={id} />
+      </div>
+
+      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
         <RecentCheckIns clientId={id} logs={logs} unit={client.unit_preference} />
         <MeasurementsCard measurements={measurements} action={addMeasurementAction.bind(null, id)} />
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <SupplementsCard
+          supplements={supplements}
+          addAction={addSupplementAction.bind(null, id)}
+          deleteAction={deleteSupplementAction.bind(null, id)}
+        />
+        <PhotoCompare photos={photos} urls={photoUrls} />
+      </div>
+
+      <div className="mt-6">
         <NotesCard notes={notes} action={addNoteAction.bind(null, id)} />
-        <Card>
-          <CardHeader><CardTitle>Progress Photos</CardTitle></CardHeader>
-          {photos.length === 0 ? (
-            <p className="text-sm text-muted">No photos uploaded by this client yet.</p>
-          ) : (
-            <div className="grid grid-cols-3 gap-2">
-              {photos.map((p) => (
-                <div key={p.id} className="overflow-hidden rounded-lg bg-surface-2">
-                  {photoUrls[p.id] ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={photoUrls[p.id]} alt="Progress" className="aspect-[3/4] w-full object-cover" />
-                  ) : (
-                    <div className="aspect-[3/4]" />
-                  )}
-                  <p className="px-2 py-1 text-center text-[10px] text-subtle">
-                    {format(new Date(p.taken_at), "MMM d, yyyy")}
-                  </p>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
       </div>
     </div>
   );

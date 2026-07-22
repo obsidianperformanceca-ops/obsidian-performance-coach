@@ -286,6 +286,24 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["weights"]["Row"]>;
         Relationships: [];
       };
+      supplement_protocols: {
+        Row: {
+          id: string;
+          client_id: string;
+          supplement: string;
+          dose: string | null;
+          timing: string | null;
+          notes: string | null;
+          is_active: boolean;
+          created_at: Timestamp;
+        };
+        Insert: Partial<Database["public"]["Tables"]["supplement_protocols"]["Row"]> & {
+          client_id: string;
+          supplement: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["supplement_protocols"]["Row"]>;
+        Relationships: [];
+      };
       fasts: {
         Row: {
           id: string;

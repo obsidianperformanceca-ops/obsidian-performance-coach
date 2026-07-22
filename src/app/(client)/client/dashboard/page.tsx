@@ -5,6 +5,7 @@ import { getWeightsForClient } from "@/lib/db/weights";
 import { getDailyLogsForClient, getOrCreateTodayLog, getDailyLogWithMeals, getDailyMealTotals } from "@/lib/db/daily-logs";
 import { getSavedMealsForClient } from "@/lib/db/saved-meals";
 import { getFastingState } from "@/lib/db/fasts";
+import { getSupplementsForClient } from "@/lib/db/supplements";
 import { getActiveProgramForClient } from "@/lib/db/workouts";
 import { computeStreak } from "@/lib/calculations/progress";
 import { sumMealTotals } from "@/lib/calculations/nutrition";
@@ -26,7 +27,7 @@ import { Flame, Footprints, Dumbbell, Sparkles } from "lucide-react";
 export default async function ClientDashboardPage() {
   const { client } = await requireClient();
 
-  const [target, weights, logs, program, todayLog, savedMeals, fasting, mealTotals] = await Promise.all([
+  const [target, weights, logs, program, todayLog, savedMeals, fasting, mealTotals, supplements] = await Promise.all([
     getActiveTarget(client.id),
     getWeightsForClient(client.id),
     getDailyLogsForClient(client.id, 30),
@@ -35,6 +36,7 @@ export default async function ClientDashboardPage() {
     getSavedMealsForClient(client.id),
     getFastingState(client.id),
     getDailyMealTotals(client.id, 30),
+    getSupplementsForClient(client.id),
   ]);
   const { meals: todayMeals } = await getDailyLogWithMeals(todayLog.id);
   const consumedToday = sumMealTotals(todayMeals);
@@ -153,6 +155,26 @@ export default async function ClientDashboardPage() {
           </Card>
         </div>
       </div>
+
+      {supplements.filter((s) => s.is_active).length > 0 && (
+        <Card className="mt-6">
+          <CardHeader><CardTitle>Your Supplement Protocol</CardTitle></CardHeader>
+          <div className="space-y-2">
+            {supplements
+              .filter((s) => s.is_active)
+              .map((s) => (
+                <div key={s.id} className="rounded-lg bg-surface-2 p-3">
+                  <p className="text-sm font-medium text-foreground">
+                    {s.supplement}
+                    {s.dose && <span className="font-normal text-muted"> · {s.dose}</span>}
+                    {s.timing && <span className="font-normal text-subtle"> · {s.timing}</span>}
+                  </p>
+                  {s.notes && <p className="mt-1 text-xs text-muted">{s.notes}</p>}
+                </div>
+              ))}
+          </div>
+        </Card>
+      )}
 
       <Card className="mt-6">
         <CardHeader><CardTitle>Latest coach feedback</CardTitle></CardHeader>

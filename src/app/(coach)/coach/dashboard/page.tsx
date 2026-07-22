@@ -73,21 +73,26 @@ export default async function CoachDashboardPage() {
 
         <Card>
           <h2 className="mb-4 text-sm font-medium text-foreground">Needs attention</h2>
-          {data.missedCheckIns.length === 0 ? (
-            <p className="text-sm text-muted">Nobody is overdue right now.</p>
+          {data.triage.length === 0 ? (
+            <p className="text-sm text-muted">Everyone&apos;s on track right now.</p>
           ) : (
             <div className="space-y-3">
-              {data.missedCheckIns.slice(0, 6).map((client) => (
+              {data.triage.slice(0, 8).map(({ client, reasons, severity }) => (
                 <Link
                   key={client.id}
                   href={`/coach/clients/${client.id}`}
-                  className="flex items-center justify-between rounded-lg px-2 py-1.5 hover:bg-surface-2"
+                  className="flex items-start justify-between gap-2 rounded-lg px-2 py-1.5 hover:bg-surface-2"
                 >
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-start gap-3">
                     <Avatar name={client.full_name} size={28} />
-                    <span className="text-sm text-foreground">{client.full_name}</span>
+                    <div>
+                      <span className="text-sm text-foreground">{client.full_name}</span>
+                      <p className="text-xs text-subtle">{reasons.join(" · ")}</p>
+                    </div>
                   </div>
-                  <Badge tone="danger">At risk</Badge>
+                  <Badge tone={severity === "high" ? "danger" : "warning"}>
+                    {severity === "high" ? "At risk" : "Review"}
+                  </Badge>
                 </Link>
               ))}
             </div>
