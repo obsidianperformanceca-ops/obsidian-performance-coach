@@ -71,6 +71,79 @@ export async function estimateFromDescription(
   }
 }
 
+/**
+ * Vision variant — estimates nutrition from a photo of the plate, and also
+ * returns a short text description of what it sees so the meal-log form
+ * can be auto-filled entirely from one snapshot. Costs fractions of a cent
+ * per photo (image ≈ 1.5–2k input tokens on Haiku).
+ */
+export async function estimateFromImage(
+  imageBase64: string,
+  mediaType: string,
+  hint?: string | null
+): Promise<MacroEstimate & { description: string | null }> {
+  const empty = { calories: null, proteinG: null, carbsG: null, fatG: null, description: null };
+
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey || !imageBase64) return empty;
+
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 300,
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "image",
+                source: { type: "base64", media_type: mediaType, data: imageBase64 },
+              },
+              {
+                type: "text",
+                text:
+                  `Look at this photo of food and estimate its nutrition using typical/average nutrition data. ` +
+                  `Respond with ONLY a JSON object and nothing else — no markdown, no explanation: ` +
+                  `{"description": "short description of the food you see", "calories": number, "proteinG": number, "carbsG": number, "fatG": number}. ` +
+                  `Round numbers to whole values. Estimate portion sizes from what's visible.` +
+                  (hint?.trim() ? `\n\nThe person added this note about the meal: ${hint.trim()}` : ""),
+              },
+            ],
+          },
+        ],
+      }),
+      signal: AbortSignal.timeout(25000),
+    });
+
+    if (!res.ok) return empty;
+
+    const data = await res.json();
+    const text: string = data?.content?.[0]?.text ?? "";
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) return empty;
+
+    const parsed = JSON.parse(match[0]);
+    const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? Math.round(v) : null);
+
+    return {
+      description: typeof parsed.description === "string" ? parsed.description : null,
+      calories: num(parsed.calories),
+      proteinG: num(parsed.proteinG),
+      carbsG: num(parsed.carbsG),
+      fatG: num(parsed.fatG),
+    };
+  } catch {
+    return empty;
+  }
+}
+
 type MealMacros = {
   est_calories: number | null;
   est_protein_g: number | null;

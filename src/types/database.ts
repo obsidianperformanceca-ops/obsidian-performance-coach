@@ -286,6 +286,20 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["weights"]["Row"]>;
         Relationships: [];
       };
+      fasts: {
+        Row: {
+          id: string;
+          client_id: string;
+          started_at: Timestamp;
+          ended_at: Timestamp | null;
+          created_at: Timestamp;
+        };
+        Insert: Partial<Database["public"]["Tables"]["fasts"]["Row"]> & {
+          client_id: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["fasts"]["Row"]>;
+        Relationships: [];
+      };
       saved_meals: {
         Row: {
           id: string;

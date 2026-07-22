@@ -2,8 +2,9 @@ import Link from "next/link";
 import { requireClient } from "@/lib/auth/session";
 import { getActiveTarget } from "@/lib/db/targets";
 import { getWeightsForClient } from "@/lib/db/weights";
-import { getDailyLogsForClient, getOrCreateTodayLog, getDailyLogWithMeals } from "@/lib/db/daily-logs";
+import { getDailyLogsForClient, getOrCreateTodayLog, getDailyLogWithMeals, getDailyMealTotals } from "@/lib/db/daily-logs";
 import { getSavedMealsForClient } from "@/lib/db/saved-meals";
+import { getFastingState } from "@/lib/db/fasts";
 import { getActiveProgramForClient } from "@/lib/db/workouts";
 import { computeStreak } from "@/lib/calculations/progress";
 import { sumMealTotals } from "@/lib/calculations/nutrition";
@@ -17,18 +18,23 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { MealQuickLog } from "@/components/client/meal-quick-log";
 import { WaterStepsLog } from "@/components/client/water-steps-log";
+import { FastingTimer } from "@/components/client/fasting-timer";
+import { HabitStreaks } from "@/components/client/habit-streaks";
+import { CalorieChart } from "@/components/charts/calorie-chart";
 import { Flame, Footprints, Dumbbell, Sparkles } from "lucide-react";
 
 export default async function ClientDashboardPage() {
   const { client } = await requireClient();
 
-  const [target, weights, logs, program, todayLog, savedMeals] = await Promise.all([
+  const [target, weights, logs, program, todayLog, savedMeals, fasting, mealTotals] = await Promise.all([
     getActiveTarget(client.id),
     getWeightsForClient(client.id),
     getDailyLogsForClient(client.id, 30),
     getActiveProgramForClient(client.id),
     getOrCreateTodayLog(client.id),
     getSavedMealsForClient(client.id),
+    getFastingState(client.id),
+    getDailyMealTotals(client.id, 30),
   ]);
   const { meals: todayMeals } = await getDailyLogWithMeals(todayLog.id);
   const consumedToday = sumMealTotals(todayMeals);
@@ -39,6 +45,16 @@ export default async function ClientDashboardPage() {
       hasActivity: l.status !== "PENDING" || l.morning_weight_kg != null,
     }))
   );
+
+  // Per-habit streaks — same computation, different "counts as done" rules.
+  const streakOf = (pred: (l: (typeof logs)[number]) => boolean) =>
+    computeStreak(logs.map((l) => ({ logDate: l.log_date, hasActivity: pred(l) })));
+  const habitStreaks = {
+    logging: streak,
+    water: streakOf((l) => (l.water_ml ?? 0) > 0),
+    steps: streakOf((l) => (l.steps ?? 0) > 0),
+    workouts: streakOf((l) => l.workout_completed === true),
+  };
 
   const latestFeedback = logs.find((l) => l.coach_feedback);
   const hasCheckedInToday = todayLog.status !== "PENDING" || todayLog.morning_weight_kg != null;
@@ -99,9 +115,20 @@ export default async function ClientDashboardPage() {
         </Card>
       </div>
 
+      <div className="mt-4">
+        <HabitStreaks {...habitStreaks} />
+      </div>
+
       <div className="mt-6">
         <NutritionSummary consumed={consumedToday} target={target} />
       </div>
+
+      {mealTotals.length > 1 && (
+        <Card className="mt-6">
+          <CardHeader><CardTitle>Daily Intake — last 30 days</CardTitle></CardHeader>
+          <CalorieChart data={mealTotals} targetCalories={target?.calories} />
+        </Card>
+      )}
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
         <MealQuickLog todayMeals={todayMeals} savedMeals={savedMeals} />
@@ -112,6 +139,7 @@ export default async function ClientDashboardPage() {
             waterGoalMl={target?.water_ml}
             stepGoal={client.step_goal}
           />
+          <FastingTimer activeFast={fasting.activeFast} lastFast={fasting.lastFast} />
           <Card>
             <CardHeader><CardTitle>Morning check-in</CardTitle></CardHeader>
             <p className="text-sm text-muted">

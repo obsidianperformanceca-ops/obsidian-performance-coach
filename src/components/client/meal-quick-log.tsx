@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -19,9 +19,13 @@ import {
   Sparkles,
   Bookmark,
   Zap,
+  CopyPlus,
+  Camera,
 } from "lucide-react";
+import { FoodSearchPanel } from "@/components/client/food-search-panel";
 import type { MealRow } from "@/lib/db/daily-logs";
 import type { SavedMealRow } from "@/lib/db/saved-meals";
+import type { FoodSearchResult } from "@/lib/food/open-food-facts";
 
 type MealType = "BREAKFAST" | "LUNCH" | "DINNER" | "SNACK" | "DRINK";
 
@@ -54,6 +58,10 @@ export function MealQuickLog({
   const [quickAddingId, setQuickAddingId] = useState<string | null>(null);
   const [saveAsTemplate, setSaveAsTemplate] = useState(false);
   const [templateName, setTemplateName] = useState("");
+  const [copying, setCopying] = useState(false);
+  const [copyNote, setCopyNote] = useState<string | null>(null);
+  const [photoEstimating, setPhotoEstimating] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   function resetModal() {
     setDescription("");
@@ -156,6 +164,106 @@ export function MealQuickLog({
     router.refresh();
   }
 
+  // Downscale the photo client-side (max 1024px, JPEG) so uploads stay
+  // small and fast even from a 12MP phone camera.
+  async function downscalePhoto(file: File): Promise<{ base64: string; mediaType: string } | null> {
+    try {
+      const bitmap = await createImageBitmap(file);
+      const maxDim = 1024;
+      const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(bitmap.width * scale);
+      canvas.height = Math.round(bitmap.height * scale);
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return null;
+      ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
+      return { base64: dataUrl.split(",")[1], mediaType: "image/jpeg" };
+    } catch {
+      return null;
+    }
+  }
+
+  async function handlePhoto(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file
+    if (!file) return;
+
+    setPhotoEstimating(true);
+    setEstimateNote(null);
+    try {
+      const img = await downscalePhoto(file);
+      if (!img) throw new Error("could not read image");
+
+      const res = await fetch("/api/meals/estimate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          imageBase64: img.base64,
+          imageMediaType: img.mediaType,
+          description, // any text already typed becomes a hint for the AI
+        }),
+      });
+      const data = await res.json();
+      const est = data?.estimate as
+        | { description: string | null; calories: number | null; proteinG: number | null; carbsG: number | null; fatG: number | null }
+        | undefined;
+
+      if (est && est.calories != null) {
+        if (est.description && !description.trim()) setDescription(est.description);
+        setMacros({
+          calories: String(est.calories),
+          proteinG: est.proteinG != null ? String(est.proteinG) : "",
+          carbsG: est.carbsG != null ? String(est.carbsG) : "",
+          fatG: est.fatG != null ? String(est.fatG) : "",
+        });
+      } else {
+        setEstimateNote("Couldn't read the photo — describe the meal instead.");
+      }
+    } catch {
+      setEstimateNote("Couldn't read the photo — describe the meal instead.");
+    } finally {
+      setPhotoEstimating(false);
+    }
+  }
+
+  // Fill the form from a food-database or barcode result. Uses the item
+  // name as the description and prefixes the serving basis so the client
+  // knows whether the macros are per-serving or per-100g before logging.
+  function handleFoodSelect(r: FoodSearchResult) {
+    setDescription(r.brand ? `${r.name} (${r.brand})` : r.name);
+    setServingSize(r.servingSize ?? "");
+    setMacros({
+      calories: r.calories != null ? String(r.calories) : "",
+      proteinG: r.proteinG != null ? String(r.proteinG) : "",
+      carbsG: r.carbsG != null ? String(r.carbsG) : "",
+      fatG: r.fatG != null ? String(r.fatG) : "",
+    });
+    setEstimateNote(
+      r.basis === "100g"
+        ? "Macros are per 100 g — adjust if you ate a different amount."
+        : null
+    );
+  }
+
+  async function handleCopyYesterday() {
+    setCopying(true);
+    setCopyNote(null);
+    try {
+      const res = await fetch("/api/meals/copy-yesterday", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setCopyNote(typeof data.error === "string" ? data.error : "Couldn't copy yesterday's meals.");
+      } else {
+        router.refresh();
+      }
+    } catch {
+      setCopyNote("Couldn't copy yesterday's meals.");
+    } finally {
+      setCopying(false);
+    }
+  }
+
   async function handleDelete(id: string) {
     await fetch(`/api/meals?id=${id}`, { method: "DELETE" });
     router.refresh();
@@ -193,6 +301,17 @@ export function MealQuickLog({
           </button>
         ))}
       </div>
+
+      <button
+        type="button"
+        disabled={copying}
+        onClick={handleCopyYesterday}
+        className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-border px-2 py-2 text-xs font-medium text-muted transition-colors hover:border-accent hover:text-foreground disabled:opacity-60"
+      >
+        <CopyPlus size={14} />
+        {copying ? "Copying…" : "Copy all of yesterday's meals"}
+      </button>
+      {copyNote && <p className="mt-1 text-xs text-subtle">{copyNote}</p>}
 
       {mealsByType.some((m) => m.entries.length > 0) && (
         <div className="mt-4 space-y-2">
@@ -272,6 +391,13 @@ export function MealQuickLog({
               </div>
             )}
 
+            <div className="mb-3">
+              <Label>Search a food or scan a barcode</Label>
+              <div className="mt-1">
+                <FoodSearchPanel onSelect={handleFoodSelect} />
+              </div>
+            </div>
+
             <Label>What did you eat?</Label>
             <Textarea
               autoFocus
@@ -290,15 +416,32 @@ export function MealQuickLog({
               />
             </div>
 
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={!description.trim() || estimating}
-              onClick={handleEstimate}
-              className="mt-3 w-full"
-            >
-              <Sparkles size={14} /> {estimating ? "Estimating…" : "Estimate with AI"}
-            </Button>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={!description.trim() || estimating || photoEstimating}
+                onClick={handleEstimate}
+              >
+                <Sparkles size={14} /> {estimating ? "Estimating…" : "Estimate with AI"}
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={estimating || photoEstimating}
+                onClick={() => photoInputRef.current?.click()}
+              >
+                <Camera size={14} /> {photoEstimating ? "Reading photo…" : "Snap a photo"}
+              </Button>
+            </div>
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={handlePhoto}
+            />
             {estimateNote && <p className="mt-2 text-xs text-subtle">{estimateNote}</p>}
 
             <div className="mt-3 grid grid-cols-4 gap-2">
