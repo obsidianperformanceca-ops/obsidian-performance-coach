@@ -2,7 +2,12 @@ import { type NextRequest, NextResponse } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
 import { createServerClient } from "@supabase/ssr";
 
-const PUBLIC_PATHS = ["/login", "/onboarding", "/auth", "/api/leads"];
+// Public = reachable without an authenticated session. `/api/onboarding`
+// is here because the onboarding "Complete profile" POST is the request
+// that CREATES the client's account — there is no session yet at that
+// point, and the route authenticates via the invite token in its URL, not
+// a cookie. Leaving it out made middleware bounce the submit to /login.
+const PUBLIC_PATHS = ["/login", "/onboarding", "/api/onboarding", "/auth", "/api/leads"];
 
 function isPublic(pathname: string) {
   // Exact match only for "/" — the marketing homepage. Using startsWith
@@ -24,7 +29,11 @@ export async function middleware(request: NextRequest) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("next", pathname);
-    return NextResponse.redirect(url);
+    // 303 forces the browser to follow up with a GET. Without this, the
+    // default 307 preserves the method, so a POST that gets bounced here
+    // would re-POST to /login (a GET-only page) and 405. Belt-and-braces
+    // in case any other POST route ever slips past the public-path list.
+    return NextResponse.redirect(url, 303);
   }
 
   // Role-gate the /coach and /client trees. We look up the role via a
