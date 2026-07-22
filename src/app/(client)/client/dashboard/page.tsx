@@ -3,6 +3,7 @@ import { requireClient } from "@/lib/auth/session";
 import { getActiveTarget } from "@/lib/db/targets";
 import { getWeightsForClient } from "@/lib/db/weights";
 import { getDailyLogsForClient, getOrCreateTodayLog, getDailyLogWithMeals } from "@/lib/db/daily-logs";
+import { getSavedMealsForClient } from "@/lib/db/saved-meals";
 import { getActiveProgramForClient } from "@/lib/db/workouts";
 import { computeStreak } from "@/lib/calculations/progress";
 import { sumMealTotals } from "@/lib/calculations/nutrition";
@@ -21,12 +22,13 @@ import { Flame, Footprints, Dumbbell, Sparkles } from "lucide-react";
 export default async function ClientDashboardPage() {
   const { client } = await requireClient();
 
-  const [target, weights, logs, program, todayLog] = await Promise.all([
+  const [target, weights, logs, program, todayLog, savedMeals] = await Promise.all([
     getActiveTarget(client.id),
     getWeightsForClient(client.id),
     getDailyLogsForClient(client.id, 30),
     getActiveProgramForClient(client.id),
     getOrCreateTodayLog(client.id),
+    getSavedMealsForClient(client.id),
   ]);
   const { meals: todayMeals } = await getDailyLogWithMeals(todayLog.id);
   const consumedToday = sumMealTotals(todayMeals);
@@ -102,7 +104,7 @@ export default async function ClientDashboardPage() {
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <MealQuickLog todayMeals={todayMeals} />
+        <MealQuickLog todayMeals={todayMeals} savedMeals={savedMeals} />
         <div className="space-y-6">
           <WaterStepsLog
             waterMl={todayLog.water_ml}

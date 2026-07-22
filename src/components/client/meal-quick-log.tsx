@@ -7,8 +7,21 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Plus, X, Trash2, Coffee, Sandwich, UtensilsCrossed, Cookie, GlassWater, Sparkles } from "lucide-react";
+import {
+  Plus,
+  X,
+  Trash2,
+  Coffee,
+  Sandwich,
+  UtensilsCrossed,
+  Cookie,
+  GlassWater,
+  Sparkles,
+  Bookmark,
+  Zap,
+} from "lucide-react";
 import type { MealRow } from "@/lib/db/daily-logs";
+import type { SavedMealRow } from "@/lib/db/saved-meals";
 
 type MealType = "BREAKFAST" | "LUNCH" | "DINNER" | "SNACK" | "DRINK";
 
@@ -23,7 +36,13 @@ const MEAL_META: { type: MealType; label: string; icon: typeof Coffee }[] = [
 type Macros = { calories: string; proteinG: string; carbsG: string; fatG: string };
 const EMPTY_MACROS: Macros = { calories: "", proteinG: "", carbsG: "", fatG: "" };
 
-export function MealQuickLog({ todayMeals }: { todayMeals: MealRow[] }) {
+export function MealQuickLog({
+  todayMeals,
+  savedMeals,
+}: {
+  todayMeals: MealRow[];
+  savedMeals: SavedMealRow[];
+}) {
   const router = useRouter();
   const [activeType, setActiveType] = useState<MealType | null>(null);
   const [description, setDescription] = useState("");
@@ -32,6 +51,9 @@ export function MealQuickLog({ todayMeals }: { todayMeals: MealRow[] }) {
   const [estimating, setEstimating] = useState(false);
   const [estimateNote, setEstimateNote] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [quickAddingId, setQuickAddingId] = useState<string | null>(null);
+  const [saveAsTemplate, setSaveAsTemplate] = useState(false);
+  const [templateName, setTemplateName] = useState("");
 
   function resetModal() {
     setDescription("");
@@ -39,6 +61,8 @@ export function MealQuickLog({ todayMeals }: { todayMeals: MealRow[] }) {
     setMacros(EMPTY_MACROS);
     setEstimateNote(null);
     setActiveType(null);
+    setSaveAsTemplate(false);
+    setTemplateName("");
   }
 
   async function handleEstimate() {
@@ -87,13 +111,59 @@ export function MealQuickLog({ todayMeals }: { todayMeals: MealRow[] }) {
         estFatG: macros.fatG,
       }),
     });
+
+    if (saveAsTemplate && templateName.trim()) {
+      await fetch("/api/saved-meals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: templateName,
+          description,
+          servingSize,
+          estCalories: macros.calories,
+          estProteinG: macros.proteinG,
+          estCarbsG: macros.carbsG,
+          estFatG: macros.fatG,
+        }),
+      });
+    }
+
     setLoading(false);
+    resetModal();
+    router.refresh();
+  }
+
+  // One-tap logging from a saved meal (e.g. "My protein shake") — no
+  // re-typing or re-estimating, it just logs the saved template as-is.
+  async function handleQuickAdd(saved: SavedMealRow) {
+    if (!activeType) return;
+    setQuickAddingId(saved.id);
+    await fetch("/api/meals", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: activeType,
+        description: saved.description,
+        servingSize: saved.serving_size ?? "",
+        estCalories: saved.est_calories,
+        estProteinG: saved.est_protein_g,
+        estCarbsG: saved.est_carbs_g,
+        estFatG: saved.est_fat_g,
+      }),
+    });
+    setQuickAddingId(null);
     resetModal();
     router.refresh();
   }
 
   async function handleDelete(id: string) {
     await fetch(`/api/meals?id=${id}`, { method: "DELETE" });
+    router.refresh();
+  }
+
+  async function handleDeleteSaved(id: string, e: React.MouseEvent) {
+    e.stopPropagation();
+    await fetch(`/api/saved-meals?id=${id}`, { method: "DELETE" });
     router.refresh();
   }
 
@@ -157,7 +227,7 @@ export function MealQuickLog({ todayMeals }: { todayMeals: MealRow[] }) {
 
       {activeType && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-5">
+          <div className="max-h-[90vh] w-full max-w-sm overflow-y-auto rounded-xl border border-border bg-surface p-5">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-foreground">
                 Log {MEAL_META.find((m) => m.type === activeType)?.label}
@@ -166,6 +236,41 @@ export function MealQuickLog({ todayMeals }: { todayMeals: MealRow[] }) {
                 <X size={16} />
               </button>
             </div>
+
+            {savedMeals.length > 0 && (
+              <div className="mb-4">
+                <Label>Your saved meals</Label>
+                <div className="mt-1 space-y-1.5">
+                  {savedMeals.map((saved) => (
+                    <button
+                      key={saved.id}
+                      type="button"
+                      disabled={quickAddingId !== null}
+                      onClick={() => handleQuickAdd(saved)}
+                      className="flex w-full items-center justify-between rounded-lg border border-border bg-surface-2 px-3 py-2 text-left text-sm transition-colors hover:border-accent disabled:opacity-60"
+                    >
+                      <span className="flex items-center gap-2 text-foreground">
+                        <Zap size={13} className="shrink-0 text-accent" />
+                        {saved.name}
+                        {saved.est_calories != null && (
+                          <span className="text-xs text-subtle">{saved.est_calories} kcal</span>
+                        )}
+                      </span>
+                      <span className="flex items-center gap-2">
+                        {quickAddingId === saved.id && <span className="text-xs text-subtle">Logging…</span>}
+                        <Trash2
+                          size={13}
+                          className="shrink-0 text-subtle hover:text-danger"
+                          onClick={(e) => handleDeleteSaved(saved.id, e)}
+                        />
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                <div className="my-4 border-t border-border" />
+                <Label>Or log something new</Label>
+              </div>
+            )}
 
             <Label>What did you eat?</Label>
             <Textarea
@@ -215,7 +320,30 @@ export function MealQuickLog({ todayMeals }: { todayMeals: MealRow[] }) {
               </div>
             </div>
 
-            <Button type="button" disabled={loading || !description.trim()} onClick={handleLog} className="mt-3 w-full">
+            <label className="mt-4 flex items-center gap-2 text-sm text-foreground">
+              <input
+                type="checkbox"
+                checked={saveAsTemplate}
+                onChange={(e) => setSaveAsTemplate(e.target.checked)}
+                className="h-4 w-4 rounded border-border"
+              />
+              <Bookmark size={14} className="text-subtle" /> Save this as a quick-add meal
+            </label>
+            {saveAsTemplate && (
+              <Input
+                className="mt-2"
+                placeholder='Name it, e.g. "My protein shake"'
+                value={templateName}
+                onChange={(e) => setTemplateName(e.target.value)}
+              />
+            )}
+
+            <Button
+              type="button"
+              disabled={loading || !description.trim() || (saveAsTemplate && !templateName.trim())}
+              onClick={handleLog}
+              className="mt-3 w-full"
+            >
               <Plus size={14} /> {loading ? "Logging…" : "Log it"}
             </Button>
           </div>
